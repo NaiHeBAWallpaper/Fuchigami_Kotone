@@ -22,8 +22,6 @@ let currentVoiceline = 1;
 let mouseSelect = -1;
 let trackerID = -1;
 let untrackerID = -1;
-let patToggle = false; // false=Pat/PatEnd, true=Pat2/PatEnd2
-let currentPatEnd = 'PatEnd_01_M'; // 记录本次点击对应的结束动画
 let EPointX, EPointY;
 let TPoint, TEye;
 let headpatOrigin;
@@ -134,7 +132,8 @@ const AUDIO_DETAIL = [
 
 
 const HITBOX = {
-	headpat: { xMin: 1920, xMax: 2300, yMin: 130, yMax: 370 },
+	headpat: { xMin: 1920, xMax: 2300, yMin: 130, yMax: 370, start: 'Pat_01_M', end: 'PatEnd_01_M' },
+	facepat: { xMin: 1705, xMax: 2095, yMin: 335, yMax: 635, start: 'Pat2_01_M', end: 'PatEnd2_01_M' },
 	voiceline: { xMin: 800, xMax: 1690, yMin: 560, yMax: 1100 }
 };
 
@@ -275,19 +274,13 @@ function t(n, side) {
 
 // -1 = [No Entry], 1 = Headpat, 2 = Voiceline, 3 = Eye Track
 function pressedMouse(x, y) {
-	tx = t(x, 'x');
-	ty = t(y, 'y');
-	if (tx > HITBOX.headpat.xMin && tx < HITBOX.headpat.xMax && ty > HITBOX.headpat.yMin && ty < HITBOX.headpat.yMax && mouseOptions.headpatting) {
-		if (!patToggle) {
-			spineData.state.setAnimation(1, 'Pat_01_M', false);
-			currentPatEnd = 'PatEnd_01_M';
-		} else {
-			spineData.state.setAnimation(1, 'Pat2_01_M', false);
-			currentPatEnd = 'PatEnd2_01_M';
-		}
-		patToggle = !patToggle;
+	const tx = t(x, 'x');
+	const ty = t(y, 'y');
+	const pat = [HITBOX.facepat, HITBOX.headpat].find(box => tx >= box.xMin && tx < box.xMax && ty >= box.yMin && ty < box.yMax);
+	if (pat && mouseOptions.headpatting) {
+		spineData.state.setAnimation(1, pat.start, false);
 		spineData.state.setEmptyAnimation(2, 0);
-		headpatOrigin = { x, y };
+		headpatOrigin = { x, y, endAnimation: pat.end };
 		mouseSelect = 1;
 	}
 	else if (tx > HITBOX.voiceline.xMin && tx < HITBOX.voiceline.xMax && ty > HITBOX.voiceline.yMin && ty < HITBOX.voiceline.yMax && mouseOptions.voicelines) {
@@ -386,10 +379,11 @@ function movedMouse(x, y) {
 function releasedMouse() {
 	switch (mouseSelect) {
 		case 1: {
+			const { endAnimation } = headpatOrigin;
 			headpatOrigin = null;
 			headpatTarget.set(0, 0);
 			const state = spineData.state;
-			const motion = state.setAnimation(1, currentPatEnd, false);
+			const motion = state.setAnimation(1, endAnimation, false);
 			state.setEmptyAnimation(2, 0);
 			state.addEmptyAnimation(1, 0.5, motion.animationEnd);
 			state.addEmptyAnimation(2, 0.5, 0);
@@ -482,8 +476,8 @@ function init() {
 			if (props.dialogy) textbox.style.top = props.dialogy.value + '%';
 			if (props.drawHitboxes) mouseOptions.drawHitboxes = props.drawHitboxes.value;
 			if (props.lensflare) {
-				showLensflare = props.lensflare.value;
-				if (showLensflare) restoreSpecifiedSlots();
+				glareEnabled = props.lensflare.value;
+				if (spineData) applyGlareOpacity(spineData.skeleton.data);
 			}
 			if (props.hidefxsun) {
 				hideSunFx = props.hidefxsun.value;
@@ -590,7 +584,6 @@ function reloadModel() {
 		bgm = null;
 	}
 	
-	slotsHidden = false;
 
 	// Stop all intro audio and clear related timeouts
 	introAudioIsPlaying = false;
@@ -701,9 +694,6 @@ function interactionLoad() {
 function load(dynamicBinaryPath, dynamicAtlasPath) {
 	spineData = loadSpineData(dynamicBinaryPath, dynamicAtlasPath, false);
 
-	// 在设置动画之前隐藏指定的骨骼
-	hideSpecifiedSlots();
-
 	// User Option to skip Intro Animation
 	if (introAnimation) {
 		spineData.state.addAnimation(0, 'Start_Idle_01', false);
@@ -740,6 +730,26 @@ function load(dynamicBinaryPath, dynamicAtlasPath) {
 	canvas.style.visibility = 'visible';
 }
 
+const GLARE_SLOTS = new Set([
+	"FX_Body", "FX_Body2", "FX_01", "FX_02",
+	"FX_Sea", "FX_Sea2", "FX_Sun2", "FX_Sun"
+]);
+const GLARE_OPACITY = 0.24;
+let glareEnabled = true;
+const originalGlareOpacity = new WeakMap();
+
+// Scale attachment opacity once so animated slot colors still control the light.
+function applyGlareOpacity(skeletonData) {
+	for (const skin of skeletonData.skins) {
+		for (const { slotIndex, attachment } of skin.getAttachments()) {
+			const slot = skeletonData.slots[slotIndex];
+			if (!GLARE_SLOTS.has(slot.name) || slot.blendMode !== 1 || !attachment.color) continue;
+			if (!originalGlareOpacity.has(attachment)) originalGlareOpacity.set(attachment, attachment.color.a);
+			attachment.color.a = originalGlareOpacity.get(attachment) * (glareEnabled ? GLARE_OPACITY : 0);
+		}
+	}
+}
+
 function loadSpineData(binaryPath, atlasPath, premultipliedAlpha) {
 	// Load the texture atlas from the AssetManager.
 	let atlas = assetManager.get(atlasPath);
@@ -753,6 +763,7 @@ function loadSpineData(binaryPath, atlasPath, premultipliedAlpha) {
 	// Set the scale to apply during parsing, parse the file, and create a new skeleton.
 	skeletonBinary.scale = 1;
 	let skeletonData = skeletonBinary.readSkeletonData(assetManager.get(binaryPath));
+	applyGlareOpacity(skeletonData);
 	let skeleton = new spine.Skeleton(skeletonData);
 	let bounds = calculateSetupPoseBounds(skeleton);
 
@@ -774,50 +785,13 @@ function calculateSetupPoseBounds(skeleton) {
 	return { offset: offset, size: size };
 }
 
-let showLensflare = false;
-let slotsHidden = false;
 let hideSunFx = false;
 
-// 定义需要隐藏的骨骼名称列表（全局变量）
-const slotsToHide = [
-	'FX_01', 'FX_02', 'FX_Body', 'FX_Body2'
-];
 
 // 定义太阳特效骨骼名称列表
 const sunFxSlots = ['FX_Sun', 'FX_Sun2'];
 
-function hideSpecifiedSlots() {
-	if (!showLensflare && spineData && spineData.skeleton) {
-		let foundSlots = 0;
-		let totalSlots = slotsToHide.length;
-		
-		// 遍历并隐藏所有指定的骨骼（每次渲染都执行）
-		slotsToHide.forEach(slotName => {
-			let slot = spineData.skeleton.findSlot(slotName);
-			if (slot) {
-				slot.setAttachment(null);
-				foundSlots++;
-			}
-		});
-		
-		// 只在首次执行时显示调试信息
-		// if (!slotsHidden) {
-		// 	console.log("总共尝试隐藏 " + totalSlots + " 个骨骼，成功隐藏 " + foundSlots + " 个");
-		// 	slotsHidden = true;
-		// }
-	}
-}
 
-function restoreSpecifiedSlots() {
-	if (spineData && spineData.skeleton) {
-		slotsToHide.forEach(slotName => {
-			let slot = spineData.skeleton.findSlot(slotName);
-			if (slot && slot.data.attachmentName) {
-				slot.setAttachment(spineData.skeleton.getAttachment(slot.data.index, slot.data.attachmentName));
-			}
-		});
-	}
-}
 
 function hideSunFxSlots() {
 	if (hideSunFx && spineData && spineData.skeleton) {
@@ -859,8 +833,6 @@ function render() {
         state.update(delta);
 		state.apply(skeleton);
 		
-		// 在渲染时检查并隐藏指定的骨骼
-		hideSpecifiedSlots();
 		hideSunFxSlots();
 
         const pointX = TPoint.x;
