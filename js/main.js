@@ -49,7 +49,8 @@ const subtitleLocales = {
 	Chinese: 'zh-Hans',
 	TraditionalChinese: 'zh-Hant',
 	Japanese: 'ja',
-	Korean: 'ko'
+	Korean: 'ko',
+	Thai: 'th'
 };
 let isVoicelinePlaying = false;
 
@@ -81,7 +82,8 @@ const AUDIO_DETAIL = [
             Korean: [
                 "상사님, 오셨습니다.",
                 "미안해, 물 속에 있어..."
-            ]
+            ],
+            Thai: ["อ๊ะ คุณครู มาแล้วเหรอ","ขอโทษนะ พอดีอยู่ในน้ำ เลยไม่ทันสังเกต..."]
         }
     },
     {
@@ -105,7 +107,8 @@ const AUDIO_DETAIL = [
             Korean: [
                 "이 책?",
                 "걱정 마, 방수 처리되어 있어 괜찮아"
-            ]
+            ],
+            Thai: ["หืม? อ้อ... หนังสือเล่มนี้เหรอ?","ไม่เป็นไรหรอก เคลือบกันน้ำไว้แล้ว"]
         }
     },
     {
@@ -129,7 +132,8 @@ const AUDIO_DETAIL = [
             Korean: [
                 "그게 무슨 뜻이었지? 물 위에 잠자는 건 위험해?",
                 "걱정 마, 익숙해졌어요. 게다가... 여기 정말 멋진 느낌이죠."
-            ]
+            ],
+            Thai: ["ไม่ได้หมายถึงเรื่องนั้นเหรอ...? นอนลอยอยู่บนน้ำมันอันตรายงั้นเหรอ?","ไม่ต้องห่วงหรอก ฉันชินแล้ว อีกอย่าง... ตรงนี้สบายมากเลยนะ"]
         }
     },
     {
@@ -153,7 +157,8 @@ const AUDIO_DETAIL = [
             Korean: [
                 "햇볕에 푹 빠지는 동안 수중의 소리를 들을 수 있어요",
                 "그 의미 에서, 독서 와 다이빙 은 조금 비슷 할 수 있습니다. 둘 다 침몰 하는 것 들 의 목소리 를 듣는 것 을 포함 합니다."
-            ]
+            ],
+            Thai: ["ได้นอนอาบแดดไป ฟังเสียงใต้น้ำไปด้วย...","ถ้าคิดแบบนั้น การอ่านหนังสือกับการดำน้ำก็คล้ายกันนิดหน่อยนะ เพราะทั้งคู่คือการเงี่ยหูฟังเสียงของสิ่งที่จมลงไป"]
         }
     },
     {
@@ -177,7 +182,8 @@ const AUDIO_DETAIL = [
             Korean: [
                 "여기, 왜 나와 함께 시도하지 않는가, 상사?",
                 "난... 물 밑에 있는 세상에 대해 많은 이야기를 들려드리겠습니다."
-            ]
+            ],
+            Thai: ["นี่ คุณครูไม่ลองทำด้วยกันดูเหรอ?","ฉันจะ... เล่าเรื่องโลกใต้ผืนน้ำให้ฟังตั้งเยอะแน่ะ"]
         }
     }
 ];
@@ -303,7 +309,7 @@ function playVoiceline() {
 			track.play().catch(finish);
 
 			if (dialogBox) {
-				textbox.textContent = dialog[window.selectedLanguage][index];
+				textbox.textContent = getSubtitleText(dialog, window.selectedLanguage, index);
 				textbox.style.opacity = 1;
 			}
 		},
@@ -481,6 +487,16 @@ function setMouse(event) {
 	return { x: ax - canvas.width * positionX, y: ay - canvas.height * positionY };
 }
 
+function getSubtitleText(dialog, language, index) {
+	let text = dialog?.[language]?.[index];
+	if (text == null && language === 'Thai') {
+		language = 'English';
+		text = dialog?.[language]?.[index];
+	}
+	textbox.lang = subtitleLocales[language];
+	return text ?? "";
+}
+
 function updateSubtitleLanguage() {
 	let language = subtitleLanguagePreference;
 	if (language === 'auto') {
@@ -494,6 +510,8 @@ function updateSubtitleLanguage() {
 			language = 'Japanese';
 		} else if (primary === 'ko' || primary === 'korean' || primary === 'koreana') {
 			language = 'Korean';
+		} else if (primary === 'th' || primary === 'thai') {
+			language = 'Thai';
 		} else {
 			language = 'English';
 		}
@@ -503,7 +521,7 @@ function updateSubtitleLanguage() {
 	window.selectedLanguage = language;
 	textbox.lang = subtitleLocales[language];
 	const clip = currentTracks.at(-1);
-	if (dialogBox && clip) textbox.textContent = clip.dialog[language][clip.index];
+	if (dialogBox && clip) textbox.textContent = getSubtitleText(clip.dialog, language, clip.index);
 }
 
 function init() {
